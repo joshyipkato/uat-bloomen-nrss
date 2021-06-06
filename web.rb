@@ -383,6 +383,11 @@ post '/authenticate_stripe_user' do
     session[:customer_id] = @customer.id
   end
   
+  rescue Stripe::StripeError => e
+    status 402
+    return log_info("Error authenticating: #{e.message}")
+  end
+  
   content_type :json
   status 200
   @customer.to_json
