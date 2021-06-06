@@ -376,17 +376,13 @@ post '/authenticate_stripe_user' do
     begin
       @customer = Stripe::Customer.retrieve(customer_id)
     rescue Stripe::InvalidRequestError
-      status 402
+      status 404
     end
   else
     @customer = Stripe::Customer.retrieve(payload[:stripeID])
     session[:customer_id] = @customer.id
   end
   
-  rescue Stripe::StripeError => e
-    status 402
-    return log_info("Error authenticating: #{e.message}")
-  end
   
   content_type :json
   status 200
