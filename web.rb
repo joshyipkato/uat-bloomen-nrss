@@ -24,6 +24,7 @@ end
 
 post '/ephemeral_keys' do
   authenticate!
+  
   begin
     key = Stripe::EphemeralKey.create(
       {customer: @customer.id},
@@ -55,7 +56,7 @@ def authenticate!
       @customer = Stripe::Customer.retrieve(default_customer_id)
     else
       begin
-        @customer = create_customer()
+    #    @customer = create_customer()
 
         if (Stripe.api_key.start_with?('sk_test_'))
           # only attach test cards in testmode
@@ -152,6 +153,9 @@ post '/stripe-webhook' do
   when 'payment_intent.succeeded'
     payment_intent = event.data.object # contains a Stripe::PaymentIntent
     log_info("Webhook: PaymentIntent succeeded #{payment_intent.id}")
+    
+    
+    
     # Fulfill the customer's purchase, send an email, etc.
     # When creating the PaymentIntent, consider storing any order
     # information (e.g. order number) as metadata so that you can retrieve it
@@ -209,14 +213,11 @@ end
 # https://stripe.com/docs/api/payment_intents/create
 # A real implementation would include controls to prevent misuse
 post '/create_payment_intent' do
-  authenticate!
   payload = params
 
   if request.content_type != nil and request.content_type.include? 'application/json' and params.empty?
       payload = Sinatra::IndifferentHash[JSON.parse(request.body.read)]
   end
-
-  supported_payment_methods = payload[:supported_payment_methods] ? payload[:supported_payment_methods].split(",") : nil
 
   # Calculate how much to charge the customer
   amount = calculate_price(payload[:products], payload[:shipping])
@@ -228,7 +229,11 @@ post '/create_payment_intent' do
       :customer => payload[:customer_id] || @customer.id,
       :description => "Example PaymentIntent",
       :capture_method => ENV['CAPTURE_METHOD'] == "manual" ? "manual" : "automatic",
-      payment_method_types: supported_payment_methods ? supported_payment_methods : payment_methods_for_country(payload[:country]),
+      payment_method_types: payment_methods_for_country(payload[:country]),
+      
+      # Sends receipt
+      receipt_email: payload[:email_address],
+      
       :metadata => {
         :order_id => '5278735C-1F40-407D-933A-286E463E72D8',
       }.merge(payload[:metadata] || {}),
@@ -256,7 +261,6 @@ end
 # https://stripe.com/docs/api/payment_intents/confirm
 # A real implementation would include controls to prevent misuse
 post '/confirm_payment_intent' do
-  authenticate!
   payload = params
   if request.content_type.include? 'application/json' and params.empty?
     payload = Sinatra::IndifferentHash[JSON.parse(request.body.read)]
@@ -328,26 +332,69 @@ def generate_payment_response(payment_intent)
   end
 end
 
+# ===== Custom Methods
+# Create new customer at login
+
+post '/create_new_customer' do
+  payload = params
+  if request.content_type != nil and request.content_type.include? 'application/json' and params.empty?
+      payload = Sinatra::IndifferentHash[JSON.parse(request.body.read)]
+  end
+  begin
+      @customer = Stripe::Customer.create({
+      description: payload[:fbuid],
+      email: payload[:email],
+    })
+    
+    session[:customer_id] = @customer.id
+
+        if (Stripe.api_key.start_with?('sk_test_'))
+          # only attach test cards in testmode
+          attach_customer_test_cards()
+        end
+    
+  rescue Stripe::StripeError => e
+    status 402
+    return log_info("Error creating SetupIntent: #{e.message}")
+  end
+  
+  
+  content_type :json
+  status 200
+  @customer.to_json
+end
+
+post '/authenticate_stripe_user' do
+  
+  payload = params
+  if request.content_type != nil and request.content_type.include? 'application/json' and params.empty?
+      payload = Sinatra::IndifferentHash[JSON.parse(request.body.read)]
+  end
+  
+  if session.has_key?(:customer_id)
+    customer_id = session[:customer_id]
+    begin
+      @customer = Stripe::Customer.retrieve(customer_id)
+    rescue Stripe::InvalidRequestError
+    end
+  else
+    @customer = Stripe::Customer.retrieve(payload[:stripeID])
+    session[:customer_id] = @customer.id
+  end
+  
+  content_type :json
+  status 200
+  @customer.to_json
+  
+end
+
 # ===== Helpers
 
 # Our example apps sell emoji apparel; this hash lets us calculate the total amount to charge.
 EMOJI_STORE = {
-  "👕" => 2000,
-  "👖" => 4000,
-  "👗" => 3000,
-  "👞" => 700,
-  "👟" => 600,
-  "👠" => 1000,
-  "👡" => 2000,
-  "👢" => 2500,
-  "👒" => 800,
-  "👙" => 3000,
-  "💄" => 2000,
-  "🎩" => 5000,
-  "👛" => 5500,
-  "👜" => 6000,
-  "🕶" => 2000,
-  "👚" => 2500,
+  "Standard" => 40000,
+  "Romeo" => 70000,
+  "Romeo XL" => 100000,
 }
 
 def price_lookup(product)
@@ -357,7 +404,7 @@ def price_lookup(product)
 end
 
 def calculate_price(products, shipping)
-  amount = 1099  # Default amount.
+  amount = 0  # Default amount.
 
   if products
     amount = products.reduce(0) { | sum, product | sum + price_lookup(product) }
@@ -371,6 +418,8 @@ def calculate_price(products, shipping)
       amount = amount + 2099
     when "ups_worldwide"
       amount = amount + 1099
+    when "free"
+      amount = amount + 0
     end
   end
 
@@ -383,21 +432,21 @@ def currency_for_country(country)
 
   case country
   when 'us'
-    'usd'
+    'hkd'
   when 'mx'
-    'mxn'
+    'hkd'
   when 'my'
-    'myr'
+    'hkd'
   when 'at', 'be', 'de', 'es', 'it', 'nl', 'pl'
-    'eur'
+    'hkd'
   when 'au'
-    'aud'
+    'hkd'
   when 'gb'
-    'gbp'
-  when 'in'
-    'inr'
+    'hkd'
+    when 'hk'
+      'hkd'
   else
-    'usd'
+    'hkd'
   end
 end
 
@@ -408,27 +457,25 @@ def payment_methods_for_country(country)
   when 'mx'
     %w[card oxxo]
   when 'my'
-    %w[card fpx grabpay]
+    %w[card fpx]
   when 'nl'
     %w[card ideal sepa_debit sofort]
   when 'au'
     %w[card au_becs_debit]
   when 'gb'
-    %w[card paypal bacs_debit]
+    %w[card bacs_debit]
   when 'es', 'it'
-    %w[card paypal sofort]
+    %w[card sofort]
   when 'pl'
-    %w[card paypal p24]
+    %w[card p24]
   when 'be'
-    %w[card paypal sofort bancontact]
+    %w[card sofort bancontact]
   when 'de'
-    %w[card paypal sofort giropay]
+    %w[card sofort giropay]
   when 'at'
-    %w[card paypal sofort eps]
+    %w[card sofort eps]
   when 'sg'
-    %w[card alipay grabpay]
-  when 'in'
-    %w[card upi netbanking]
+    %w[card alipay]
   else
     %w[card]
   end
