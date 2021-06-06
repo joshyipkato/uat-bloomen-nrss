@@ -376,6 +376,7 @@ post '/authenticate_stripe_user' do
     begin
       @customer = Stripe::Customer.retrieve(customer_id)
     rescue Stripe::InvalidRequestError
+      status 402
     end
   else
     @customer = Stripe::Customer.retrieve(payload[:stripeID])
