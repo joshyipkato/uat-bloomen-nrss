@@ -227,7 +227,7 @@ post '/create_payment_intent' do
       :amount => amount,
       :currency => currency_for_country(payload[:country]),
       :customer => payload[:customer_id] || @customer.id,
-      :description => "Example PaymentIntent",
+      :description => "Bloomen Flower Delivery Payment",
       :capture_method => ENV['CAPTURE_METHOD'] == "manual" ? "manual" : "automatic",
       payment_method_types: payment_methods_for_country(payload[:country]),
       
@@ -282,7 +282,7 @@ post '/confirm_payment_intent' do
         :source => payload[:source],
         :payment_method => payload[:payment_method_id],
         :payment_method_types => payment_methods_for_country(payload[:country]),
-        :description => "Example PaymentIntent",
+        :description => "Bloomen Flower Delivery Payment",
         :shipping => payload[:shipping],
         :return_url => payload[:return_url],
         :confirm => true,
@@ -397,6 +397,13 @@ EMOJI_STORE = {
   "Standard" => 40000,
   "Romeo" => 70000,
   "Romeo XL" => 100000,
+  "Cotton and spray rose bouquet" => 74000,
+  "Red rose and eustoma bouquet" => 74000,
+  "Cream rose and spray rose bouquet" => 95000,
+  "Pink rose bouquet" => 87500,
+  "Purple rose and clematis bouquet" => 105000,
+  "Garden rose and ornithogalum bouquet" => 99000,
+  "Pink rose and clematis bouquet" => 116000
 }
 
 def price_lookup(product)
